@@ -10,6 +10,8 @@ from typing import Dict, List
 from dotenv import load_dotenv
 import os
 
+from utils.parsing import parse_bullet_points
+
 # Parse arguments for optional extensions
 parser = argparse.ArgumentParser()
 parser.add_argument('-e', '--env', nargs='+', help='filenames for env')
@@ -115,6 +117,11 @@ def task_creation_agent(objective: str, result: Dict, task_description: str, tas
     new_tasks = response.split('\n')
     return [{"task_name": task_name} for task_name in new_tasks]
 
+def goal_creation_agent(objective: str):
+    prompt = f"You are an goal creation AI tasked with creating goals for the following objective: {objective}. Return the goals as a list of bullet points."
+    response = openai_call(prompt)
+    return parse_bullet_points(response)
+
 def prioritization_agent(this_task_id: int):
     global task_list
     task_names = [t["task_name"] for t in task_list]
@@ -149,7 +156,8 @@ def context_agent(query: str, n: int):
     return [(str(item.metadata['task'])) for item in sorted_results]
 
 def decide_if_done_agent(objective: str, artifact: str):
-    prompt = f"We're trying to complete this objective: {objective}.\n\nThis is what we've written so far: {artifact}.\n\nDo you think the objective is complete? Please give a one word answer of yes or no."
+    goals = '\n'.join(goal_list)
+    prompt = f"We're trying to complete this objective: {objective}.\n\nHere are the goals we're trying to achieve:{goals}\n\nThis is what we've written so far: {artifact}.\n\nDo you think the objective is complete? If yes, please give a single word answer of 'yes'. If no, please list the goals which have not yet been achieved"
     response = openai_call(prompt, max_tokens=10)
     if response[:3].lower() == "yes":
         return True
@@ -160,16 +168,24 @@ def modify_artifact_from_task_agent(objective: str, artifact: str, task: str, re
     prompt = f"We're trying to complete this objective: {objective}.\n\nThis is what we've written so far: {artifact}.\n\nWe've decided to do this task: {task}.\n\nThis is the result of that: {result}.\n\nDo you think we should rewrite what we've written so far based on the result of that task? If no, please give a single word answer of 'no'. If yes, please give a single word answer of 'yes' and then rewrite what we've written so far to incorporate the result of that task."
     response = openai_call(prompt, max_tokens=2000)
     if response[:2].lower() == "no":
+        print(f"Not yet done, still need to achieve these goals: {', '.join(goal_list)}")
         return artifact
     if response[:3].lower() == "yes":
         response = response[3:].strip()
-    return response
+    # By default, no changes
+    return artifact
 
 # Add the first task
 first_task = {
     "task_id": 1,
     "task_name": YOUR_FIRST_TASK
 }
+
+# Goal list. This is separate from the tasks, because these will help us decide when we're done.
+goal_list = goal_creation_agent(OBJECTIVE)
+print("\033[94m\033[1m"+"\n*****GOALS*****\n"+"\033[0m\033[0m")
+for goal in goal_list:
+    print(goal)
 
 add_task(first_task)
 # Main loop
