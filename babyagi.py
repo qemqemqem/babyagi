@@ -150,11 +150,20 @@ def context_agent(query: str, n: int):
 
 def decide_if_done_agent(objective: str, artifact: str):
     prompt = f"We're trying to complete this objective: {objective}.\n\nThis is what we've written so far: {artifact}.\n\nDo you think the objective is complete? Please give a one word answer of yes or no."
-    response = openai_call(prompt)
+    response = openai_call(prompt, max_tokens=10)
     if response[:3].lower() == "yes":
         return True
     else:
         return False
+
+def modify_artifact_from_task_agent(objective: str, artifact: str, task: str, result: str):
+    prompt = f"We're trying to complete this objective: {objective}.\n\nThis is what we've written so far: {artifact}.\n\nWe've decided to do this task: {task}.\n\nThis is the result of that: {result}.\n\nDo you think we should rewrite what we've written so far based on the result of that task? If no, please give a single word answer of 'no'. If yes, please give a single word answer of 'yes' and then rewrite what we've written so far to incorporate the result of that task."
+    response = openai_call(prompt, max_tokens=2000)
+    if response[:2].lower() == "no":
+        return artifact
+    if response[:3].lower() == "yes":
+        response = response[3:].strip()
+    return response
 
 # Add the first task
 first_task = {
@@ -182,6 +191,11 @@ while True:
         this_task_id = int(task["task_id"])
         print("\033[93m\033[1m"+"\n*****TASK RESULT*****\n"+"\033[0m\033[0m")
         print(result)
+
+        # Modify the artifact based on the result of the task
+        artifact = modify_artifact_from_task_agent(OBJECTIVE, artifact, task["task_name"], result)
+        print("\033[94m\033[1m"+"\n*****ARTIFACT*****\n"+"\033[0m\033[0m")
+        print(artifact)
 
         # Step 2: Enrich result and store in Pinecone
         enriched_result = {'data': result}  # This is where you should enrich the result if needed
