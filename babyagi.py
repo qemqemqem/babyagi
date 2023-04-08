@@ -132,44 +132,53 @@ def delegation_agent(modules: str, tasks):
     print("\n\nGenerated Delegation Plan:\n" + response)
     return response
 
-def refinement_agent(task: str):
+def ready_refine_agent(task: str):
     prompt = f"""
-You're a project planning AI agent that is tasked with helping people break down goals into a list
-of actionable tasks that an average person knows how to do. If a task is something that an average
-person knows how to do reply with only the word 'READY' otherwise break the task down into a numbered list of easier to
-accomplish tasks.
+You are an AI agent who's only job is to determine if a task is simple enough that an average person knows how to do it or if it would be helpful to break the task down further into easier steps.  If a task is actionable respond with only the word "READY".  If a task needs to be broken down respond with only the word "REFINE".
 
 Example 1:
-Task: Create a Website
-Output:
-1. Decide a domain name and use a service like GoDaddy to check availability and purchase the domain
-2. Design the website on paper
-3. Use a website builder like Wix to create the webpage you designed
+Input: Create a Website
+Output: REFINE 
 
 Example 2:
-Task: Decide a domain name and use a service like GoDaddy to check availability and purchase the domain
-Output:
-READY
+Input: Decide a domain name and use a service like GoDaddy to check availability and purchase the domain
+Output: READY
 
 Example 3:
 Task: Order Takeout
-Output:
-READY
+Output: READY
 
 Example 4:
-Task: Pay your credit card bill
-Output:
-READY
+Input: Pay your credit card bill
+Output: READY
 
+Example 5: 
+Input: Brainstorm and outline the story, including character, setting, plot, and theme.
+Output: READY
+
+Example 6:
+Input: Write a short story about a wizard who becomes a bird.
+Output: REFINE
+
+Prompt:
+Input: {task}
+"""
+    response = openai_call(prompt)
+    if "ready" in response[:10].lower():
+        # No subtasks
+        return False
+    else:
+        return True
+def refinement_agent(task: str):
+    if ready_refine_agent(task):
+        return task
+    prompt = f"""
+You're a project planning AI agent that is tasked with helping people break down goals into a list
+of actionable tasks that an average person knows how to do. Please break down the following task.
 Task: {task}"""
-    # prompt = f"I want to accomplish this task: {task}\n\nIs this task actionable? If so, please respond with the single word 'yes'.\n\nBut if it's too big or too vague, please break it down into smaller tasks. Return the tasks as a list of bullet points."
     response = openai_call(prompt)
     print("\n\nMore detailed plan:\n" + response)
-    if "\n" not in response or "READY" in response[:10].lower():
-        # No subtasks
-        return task, False
-    else:
-        return parse_bullet_points(response), True
+    return parse_bullet_points(response), True
 
 def prioritization_agent(this_task_id: int):
     global task_list
