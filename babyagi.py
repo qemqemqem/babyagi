@@ -72,6 +72,9 @@ if table_name not in pinecone.list_indexes():
 # Connect to the index
 index = pinecone.Index(table_name)
 
+# Modules
+MODULES = ["write text", "ask a human", "get more information", "generate an image", "refine the task into subtasks"]
+
 # Task list
 task_list = deque([])
 
@@ -113,8 +116,8 @@ def openai_call(prompt: str, model: str = OPENAI_API_MODEL, temperature: float =
 
 def task_creation_agent(objective: str, result: Dict, task_description: str, task_list: List[str]):
     prompt = f"You are an task creation AI that uses the result of an execution agent to create new tasks with the following objective: {objective}, The last completed task has the result: {result}. This result was based on this task description: {task_description}. These are incomplete tasks: {', '.join(task_list)}. Based on the result, create new tasks to be completed by the AI system that do not overlap with incomplete tasks. Return the tasks as an array."
-    response = openai_call(prompt)
-    new_tasks = response.split('\n')
+    response = openai_call(prompt, max_tokens=200)
+    new_tasks = parse_bullet_points(response)
     return [{"task_name": task_name} for task_name in new_tasks]
 
 def goal_creation_agent(objective: str):
@@ -122,15 +125,51 @@ def goal_creation_agent(objective: str):
     response = openai_call(prompt)
     return parse_bullet_points(response)
 
-def delegation_agent(objective: str):
-    prompt = f"This is our objective: {objective}.\n\nI want to know when we're done. Please create a list of criteria to define our objective. We'll be done when all the criteria are satisfied.\n\nReturn the criteria as a list of bullet points."
-    response = openai_call(prompt)
-    return parse_bullet_points(response)
+def delegation_agent(modules: str, tasks):
+    tasks = "\n".join([t['task_name'] for t in tasks])
+    prompt = f"You are a project planning AI agent that is tasked with breaking down problems into actionable steps and assigning those problems to one of the following AI modules: {', '.join(modules)}.\n\nFor each task, decide which module to assign it to.\n\nUse syntax like this:\n\nTask: Module\nTask: Module\n\nHere are the tasks to process:\n\n{tasks}"
+    response = openai_call(prompt, max_tokens=1000)
+    print("\n\nGenerated Delegation Plan:\n" + response)
+    return response
 
-def refinement_agent(objective: str):
-    prompt = f"This is our objective: {objective}.\n\nI want to know when we're done. Please create a list of criteria to define our objective. We'll be done when all the criteria are satisfied.\n\nReturn the criteria as a list of bullet points."
+def refinement_agent(task: str):
+    prompt = f"""
+You're a project planning AI agent that is tasked with helping people break down goals into a list
+of actionable tasks that an average person knows how to do. If a task is something that an average
+person knows how to do reply with only the word 'READY' otherwise break the task down into a numbered list of easier to
+accomplish tasks.
+
+Example 1:
+Task: Create a Website
+Output:
+1. Decide a domain name and use a service like GoDaddy to check availability and purchase the domain
+2. Design the website on paper
+3. Use a website builder like Wix to create the webpage you designed
+
+Example 2:
+Task: Decide a domain name and use a service like GoDaddy to check availability and purchase the domain
+Output:
+READY
+
+Example 3:
+Task: Order Takeout
+Output:
+READY
+
+Example 4:
+Task: Pay your credit card bill
+Output:
+READY
+
+Task: {task}"""
+    # prompt = f"I want to accomplish this task: {task}\n\nIs this task actionable? If so, please respond with the single word 'yes'.\n\nBut if it's too big or too vague, please break it down into smaller tasks. Return the tasks as a list of bullet points."
     response = openai_call(prompt)
-    return parse_bullet_points(response)
+    print("\n\nMore detailed plan:\n" + response)
+    if "\n" not in response or "READY" in response[:10].lower():
+        # No subtasks
+        return task, False
+    else:
+        return parse_bullet_points(response), True
 
 def prioritization_agent(this_task_id: int):
     global task_list
@@ -170,14 +209,14 @@ def decide_if_done_agent(objective: str, artifact: str):
     prompt = f"We're trying to complete this objective: {objective}.\n\nHere are the criteria for success:{goals}\n\nThis is what we've written so far: {artifact}.\n\nDo you think the objective is complete? If yes, please give a single word answer of 'yes'. If no, please list the criteria which have not yet been achieved"
     response = openai_call(prompt, max_tokens=10)
     if response[:3].lower() == "yes":
-        print("Yes this is great!")
+        print("\033[94m" + "Yes this is great!" + "\033[0m")
         return True
     else:
-        print(f"Not yet done, still need to achieve these goals: {response}")
+        print("\033[94m" + f"Not yet done, still need to achieve these goals: {response}" + "\033[0m")
         return False
 
 def modify_artifact_from_task_agent(objective: str, artifact: str, task: str, result: str):
-    prompt = f"We're trying to complete this objective: {objective}.\n\nThis is what we've written so far: {artifact}.\n\nWe've decided to do this task: {task}.\n\nThis is the result of that: {result}.\n\nDo you think we should rewrite what we've written so far based on the result of that task? If no, please give a single word answer of 'no'. If yes, please give a single word answer of 'yes' and then rewrite what we've written so far to incorporate the result of that task."
+    prompt = f"{artifact}\n\nThat's what we've written so far.\n\nWe're trying to complete this objective: {objective}.\n\nWe've decided to do this task: {task}.\n\nThis is the result of that: {result}.\n\nDo you think we should rewrite what we've written so far based on the result of that task? If no, please give a single word answer of 'no'. If yes, please give a single word answer of 'yes' and then rewrite what we've written so far to incorporate the result of that task."
     response = openai_call(prompt, max_tokens=2000)
     if response[:2].lower() == "no":
         print(f"Not yet done, still need to achieve these goals: {', '.join(goal_list)}")
@@ -199,11 +238,12 @@ first_task = {
     "task_name": YOUR_FIRST_TASK
 }
 
-# Goal list. This is separate from the tasks, because these will help us decide when we're done.
-goal_list = goal_creation_agent(OBJECTIVE)
-print("\033[94m\033[1m"+"\n*****GOALS*****\n"+"\033[0m\033[0m")
-for goal in goal_list:
-    print(goal)
+# # Goal list. This is separate from the tasks, because these will help us decide when we're done.
+# goal_list = goal_creation_agent(OBJECTIVE)
+# print("\033[94m\033[1m"+"\n*****GOALS*****\n"+"\033[0m\033[0m")
+# for goal in goal_list:
+#     print(goal)
+goal_list = []
 
 add_task(first_task)
 # Main loop
@@ -219,6 +259,10 @@ while True:
         task = task_list.popleft()
         print("\033[92m\033[1m"+"\n*****NEXT TASK*****\n"+"\033[0m\033[0m")
         print(str(task['task_id'])+": "+task['task_name'])
+
+        # # Refine the task if needed
+        # task, subtasks = refinement_agent(task['task_name'])
+        refinement_agent(task['task_name'])
 
         # Send to execution function to complete the task based on the context
         result = execution_agent(OBJECTIVE,task["task_name"])
@@ -240,16 +284,19 @@ while True:
     # Step 3: Create new tasks and reprioritize task list
     new_tasks = task_creation_agent(OBJECTIVE,enriched_result, task["task_name"], [t["task_name"] for t in task_list])
 
+    # # Create a delegation plan
+    # delegation_plan = delegation_agent(MODULES, new_tasks)
+
     for new_task in new_tasks:
         task_id_counter += 1
         new_task.update({"task_id": task_id_counter})
         add_task(new_task)
     prioritization_agent(this_task_id)
 
-    # Quit if done
-    if decide_if_done_agent(OBJECTIVE, artifact):
-        print("\033[94m\033[1m"+"\n*****DONE*****\n"+"\033[0m\033[0m")
-        break
+    # # Quit if done
+    # if decide_if_done_agent(OBJECTIVE, artifact):
+    #     print("\033[94m\033[1m"+"\n*****DONE*****\n"+"\033[0m\033[0m")
+    #     break
 
     time.sleep(1)  # Sleep before checking the task list again
 
