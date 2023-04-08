@@ -73,6 +73,9 @@ index = pinecone.Index(table_name)
 # Task list
 task_list = deque([])
 
+# Central artifact (Text for now)
+artifact = "nothing"
+
 def add_task(task: Dict):
     task_list.append(task)
 
@@ -145,6 +148,14 @@ def context_agent(query: str, n: int):
     sorted_results = sorted(results.matches, key=lambda x: x.score, reverse=True)
     return [(str(item.metadata['task'])) for item in sorted_results]
 
+def decide_if_done_agent(objective: str, artifact: str):
+    prompt = f"We're trying to complete this objective: {objective}.\n\nThis is what we've written so far: {artifact}.\n\nDo you think the objective is complete? Please give a one word answer of yes or no."
+    response = openai_call(prompt)
+    if response[:3].lower() == "yes":
+        return True
+    else:
+        return False
+
 # Add the first task
 first_task = {
     "task_id": 1,
@@ -187,4 +198,13 @@ while True:
         add_task(new_task)
     prioritization_agent(this_task_id)
 
+    # Quit if done
+    if decide_if_done_agent(OBJECTIVE, artifact):
+        print("\033[94m\033[1m"+"\n*****DONE*****\n"+"\033[0m\033[0m")
+        break
+
     time.sleep(1)  # Sleep before checking the task list again
+
+# Print the final artifact
+print("\033[94m\033[1m"+"\n*****FINAL ARTIFACT*****\n"+"\033[0m\033[0m")
+print(artifact)
