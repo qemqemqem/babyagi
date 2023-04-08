@@ -118,7 +118,17 @@ def task_creation_agent(objective: str, result: Dict, task_description: str, tas
     return [{"task_name": task_name} for task_name in new_tasks]
 
 def goal_creation_agent(objective: str):
-    prompt = f"You are an goal creation AI tasked with creating goals for the following objective: {objective}. Return the goals as a list of bullet points."
+    prompt = f"This is our objective: {objective}.\n\nI want to know when we're done. Please create a list of criteria to define our objective. We'll be done when all the criteria are satisfied.\n\nReturn the criteria as a list of bullet points."
+    response = openai_call(prompt)
+    return parse_bullet_points(response)
+
+def delegation_agent(objective: str):
+    prompt = f"This is our objective: {objective}.\n\nI want to know when we're done. Please create a list of criteria to define our objective. We'll be done when all the criteria are satisfied.\n\nReturn the criteria as a list of bullet points."
+    response = openai_call(prompt)
+    return parse_bullet_points(response)
+
+def refinement_agent(objective: str):
+    prompt = f"This is our objective: {objective}.\n\nI want to know when we're done. Please create a list of criteria to define our objective. We'll be done when all the criteria are satisfied.\n\nReturn the criteria as a list of bullet points."
     response = openai_call(prompt)
     return parse_bullet_points(response)
 
@@ -157,11 +167,13 @@ def context_agent(query: str, n: int):
 
 def decide_if_done_agent(objective: str, artifact: str):
     goals = '\n'.join(goal_list)
-    prompt = f"We're trying to complete this objective: {objective}.\n\nHere are the goals we're trying to achieve:{goals}\n\nThis is what we've written so far: {artifact}.\n\nDo you think the objective is complete? If yes, please give a single word answer of 'yes'. If no, please list the goals which have not yet been achieved"
+    prompt = f"We're trying to complete this objective: {objective}.\n\nHere are the criteria for success:{goals}\n\nThis is what we've written so far: {artifact}.\n\nDo you think the objective is complete? If yes, please give a single word answer of 'yes'. If no, please list the criteria which have not yet been achieved"
     response = openai_call(prompt, max_tokens=10)
     if response[:3].lower() == "yes":
+        print("Yes this is great!")
         return True
     else:
+        print(f"Not yet done, still need to achieve these goals: {response}")
         return False
 
 def modify_artifact_from_task_agent(objective: str, artifact: str, task: str, result: str):
@@ -172,7 +184,13 @@ def modify_artifact_from_task_agent(objective: str, artifact: str, task: str, re
         return artifact
     if response[:3].lower() == "yes":
         response = response[3:].strip()
+        if response[0] == ".":
+            response = response[1:].strip()
+        if response[:10].lower() == "rewritten:":
+            response = response[10:].strip()
+        return response
     # By default, no changes
+    print("Confusing response: " + response)
     return artifact
 
 # Add the first task
